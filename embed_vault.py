@@ -7,7 +7,9 @@ from array import array
 SOURCE_DB = "data/vault.db"
 SEMANTIC_DB = "data/semantic.db"
 
-MODEL = "qwen3-embedding:4b"
+from config import EMBED_MODEL
+
+MODEL = EMBED_MODEL
 
 WHOLE_NOTE_LIMIT = 600
 TARGET_WORDS = 550

@@ -3,7 +3,9 @@ import subprocess
 import sys
 import urllib.request
 
-MODEL = "gemma4:12b-mlx"
+from config import CHAT_MODEL
+
+MODEL = CHAT_MODEL
 
 
 def retrieve(question):

@@ -8,7 +8,9 @@ from array import array
 
 SEMANTIC_DB = "data/semantic.db"
 VAULT_DB = "data/vault.db"
-MODEL = "qwen3-embedding:4b"
+from config import EMBED_MODEL
+
+MODEL = EMBED_MODEL
 
 args = sys.argv[1:]
 

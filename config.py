@@ -14,3 +14,6 @@ if not vault_path:
     )
 
 VAULT = Path(vault_path).expanduser()
+
+EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:4b")
+CHAT_MODEL = os.getenv("CHAT_MODEL", "gemma4:12b-mlx")
