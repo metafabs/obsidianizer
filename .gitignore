@@ -1,0 +1,24 @@
+# Local/private configuration
+.env
+.env.*
+!.env.example
+*.local.*
+
+# Private/rebuildable vault indexes
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Python environment/cache
+.venv/
+__pycache__/
+*.pyc
+
+# Local backups/logs
+*.bak
+*.bak-*
+*.log
+
+# macOS
+.DS_Store
