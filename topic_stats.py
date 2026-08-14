@@ -3,6 +3,8 @@ import sys
 import re
 from collections import Counter
 
+from config import source_type
+
 DB = "data/vault.db"
 
 args = sys.argv[1:]
@@ -26,26 +28,6 @@ query_compact = compact(query)
 
 db = sqlite3.connect(DB)
 
-
-def source_type(path):
-    p = path.lower()
-
-    if p.startswith("wiki/"):
-        return "THINKING"
-    if "projects/" in p:
-        return "PROJECT"
-    if "areas/" in p:
-        return "AREA"
-    if "resources/" in p:
-        return "REFERENCE"
-    if p.startswith("inbox/"):
-        return "CAPTURE"
-    if "archive/" in p:
-        return "ARCHIVE"
-    if p.startswith("copilot/"):
-        return "COPILOT"
-
-    return "OTHER"
 
 
 def excluded_by_default(path):

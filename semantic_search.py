@@ -8,7 +8,7 @@ from array import array
 
 SEMANTIC_DB = "data/semantic.db"
 VAULT_DB = "data/vault.db"
-from config import EMBED_MODEL
+from config import EMBED_MODEL, source_type
 
 MODEL = EMBED_MODEL
 
@@ -75,24 +75,6 @@ def is_background(path):
     )
 
 
-
-def source_type(path):
-    p = path.lower()
-
-    if p.startswith("wiki/"):
-        return "THINKING"
-    if "projects/" in p:
-        return "PROJECT"
-    if "areas/" in p:
-        return "AREA"
-    if "resources/" in p:
-        return "REFERENCE"
-    if p.startswith("inbox/"):
-        return "CAPTURE"
-    if "archive/" in p:
-        return "ARCHIVE"
-
-    return "OTHER"
 
 
 # Load tags + links from structural database

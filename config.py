@@ -17,3 +17,32 @@ VAULT = Path(vault_path).expanduser()
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "qwen3-embedding:4b")
 CHAT_MODEL = os.getenv("CHAT_MODEL", "gemma4:12b-mlx")
+
+def _path_list(name):
+    value = os.getenv(name, "")
+    return [
+        item.strip().lower().replace("\\", "/")
+        for item in value.split(",")
+        if item.strip()
+    ]
+
+
+ROLE_PATHS = {
+    "THINKING": _path_list("THINKING_PATHS"),
+    "PROJECT": _path_list("PROJECT_PATHS"),
+    "AREA": _path_list("AREA_PATHS"),
+    "REFERENCE": _path_list("REFERENCE_PATHS"),
+    "CAPTURE": _path_list("CAPTURE_PATHS"),
+    "ARCHIVE": _path_list("ARCHIVE_PATHS"),
+}
+
+
+def source_type(path):
+    normalized = str(path).lower().replace("\\", "/")
+
+    for role, patterns in ROLE_PATHS.items():
+        if any(pattern in normalized for pattern in patterns):
+            return role
+
+    return "NOTE"
+

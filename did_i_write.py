@@ -8,7 +8,7 @@ from array import array
 
 SEMANTIC_DB = "data/semantic.db"
 VAULT_DB = "data/vault.db"
-from config import EMBED_MODEL
+from config import EMBED_MODEL, source_type
 
 MODEL = EMBED_MODEL
 
@@ -21,24 +21,6 @@ query = " ".join(sys.argv[1:]).strip()
 terms = re.findall(r"[A-Za-z0-9_-]+", query.lower())
 
 
-def source_type(path):
-    p = path.lower()
-
-    if p.startswith("wiki/"):
-        return "THINKING"
-    if "projects/" in p:
-        return "PROJECT"
-    if "areas/" in p:
-        return "AREA"
-    if "resources/" in p:
-        return "REFERENCE"
-    if p.startswith("inbox/"):
-        return "CAPTURE"
-    if "archive/" in p:
-        return "ARCHIVE"
-
-    return "OTHER"
-
 
 def is_authored_layer(kind):
     return kind in {
@@ -46,6 +28,7 @@ def is_authored_layer(kind):
         "PROJECT",
         "AREA",
         "CAPTURE",
+        "NOTE",
     }
 
 
