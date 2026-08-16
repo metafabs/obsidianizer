@@ -11,24 +11,13 @@ from embed_vault import (
     BATCH_SIZE,
 )
 
-from config import VAULT
+from config import VAULT, is_index_excluded
 SOURCE_DB = Path("data/vault.db")
 SEMANTIC_DB = Path("data/semantic.db")
 
-EXCLUDED = {
-    ".obsidian",
-    "_agent-instructions",
-    "_obsidianizer-output",
-}
-
-
 def include_note(path):
     relative = path.relative_to(VAULT)
-
-    return not any(
-        part in EXCLUDED
-        for part in relative.parts
-    )
+    return not is_index_excluded(relative)
 
 
 def semantic_allowed(path):

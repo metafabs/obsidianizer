@@ -1,23 +1,12 @@
 from pathlib import Path
 import sqlite3
 
-from config import VAULT
+from config import VAULT, is_index_excluded
 DB = Path("data/vault.db")
-
-EXCLUDED = {
-    ".obsidian",
-    "_agent-instructions",
-    "_obsidianizer-output",
-}
-
 
 def include_note(path):
     relative = path.relative_to(VAULT)
-
-    return not any(
-        part in EXCLUDED
-        for part in relative.parts
-    )
+    return not is_index_excluded(relative)
 
 
 # What exists in Obsidian right now

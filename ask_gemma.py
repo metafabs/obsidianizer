@@ -42,6 +42,15 @@ Rules:
 - If the evidence is weak or ambiguous, say so.
 - Look for patterns and connections, not generic advice.
 - Be concise but substantive.
+- Only propose memory when the conversation reveals a durable preference, principle, recurring pattern, decision, or constraint that would materially improve future answers.
+- Do NOT propose temporary facts, one-off questions, search results, or generic observations.
+- If a durable memory is warranted, append exactly this block at the END of the answer:
+
+[[MEMORY_PROPOSAL]]
+One concise durable memory statement.
+[[/MEMORY_PROPOSAL]]
+
+- If no durable memory is warranted, omit the block entirely.
 
 QUESTION:
 {question}

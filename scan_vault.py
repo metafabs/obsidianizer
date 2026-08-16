@@ -1,16 +1,10 @@
 from pathlib import Path
 
-from config import VAULT
-
-EXCLUDED_FROM_KNOWLEDGE = {
-    "_agent-instructions",
-    "_obsidianizer-output",
-    ".obsidian",
-}
+from config import VAULT, is_index_excluded
 
 def is_knowledge_note(path: Path) -> bool:
     relative = path.relative_to(VAULT)
-    return not any(part in EXCLUDED_FROM_KNOWLEDGE for part in relative.parts)
+    return not is_index_excluded(relative)
 
 def main():
     all_markdown = list(VAULT.rglob("*.md"))

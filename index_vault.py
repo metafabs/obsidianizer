@@ -3,18 +3,12 @@ from datetime import datetime
 import sqlite3
 import re
 
-from config import VAULT
+from config import VAULT, is_index_excluded
 DB = Path("data/vault.db")
-
-EXCLUDED = {
-    "_agent-instructions",
-    "_obsidianizer-output",
-    ".obsidian",
-}
 
 def is_knowledge_note(path):
     relative = path.relative_to(VAULT)
-    return not any(part in EXCLUDED for part in relative.parts)
+    return not is_index_excluded(relative)
 
 def extract_frontmatter_tags(text):
     tags = []

@@ -46,3 +46,21 @@ def source_type(path):
 
     return "NOTE"
 
+INTERNAL_EXCLUDE_DIRS = {
+    ".obsidian",
+    "_agent-instructions",
+    "_obsidianizer-memory",
+}
+
+INDEX_EXCLUDE_DIRS = (
+    INTERNAL_EXCLUDE_DIRS
+    | set(_path_list("INDEX_EXCLUDE_DIRS"))
+)
+
+
+
+def is_index_excluded(path):
+    normalized = str(path).lower().replace("\\", "/")
+    parts = [part for part in normalized.split("/") if part]
+
+    return any(part in INDEX_EXCLUDE_DIRS for part in parts)

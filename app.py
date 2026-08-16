@@ -1,10 +1,12 @@
 from pathlib import Path
+import hashlib
 from urllib.parse import quote
 import streamlit as st
 import subprocess
 import sys
 
 from config import VAULT
+from memory_store import save_memory
 
 st.set_page_config(
     page_title="Obsidianizer",
@@ -68,14 +70,54 @@ def obsidian_url(relative_path):
     return f"obsidian://open?path={encoded}"
 
 
+def split_memory_proposal(reply):
+    start_marker = "[[MEMORY_PROPOSAL]]"
+    end_marker = "[[/MEMORY_PROPOSAL]]"
+
+    if start_marker not in reply or end_marker not in reply:
+        return reply, None
+
+    before, rest = reply.split(start_marker, 1)
+    proposal, after = rest.split(end_marker, 1)
+
+    clean_reply = (before.rstrip() + "\n" + after.lstrip()).strip()
+    proposal = proposal.strip()
+
+    return clean_reply, proposal or None
+
+
+
+def explicit_memory_proposal(prompt):
+    lower = prompt.lower().strip()
+
+    durable_starts = (
+        "i prefer ",
+        "i always ",
+        "i usually ",
+        "i avoid ",
+        "i never ",
+        "my preference is ",
+        "my default is ",
+        "remember that ",
+        "from now on ",
+    )
+
+    if lower.startswith(durable_starts):
+        return prompt.strip()
+
+    return None
+
+
 def render_assistant_reply(reply):
+    clean_reply, proposal = split_memory_proposal(reply)
+
     section_names = {
         "DIRECT",
         "RELATED THINKING",
         "REFERENCE MATERIAL",
     }
 
-    for line in reply.splitlines():
+    for line in clean_reply.splitlines():
         stripped = line.strip()
 
         if not stripped:
@@ -86,7 +128,6 @@ def render_assistant_reply(reply):
             st.markdown(f"### {stripped.title()}")
             continue
 
-        # A returned vault path
         if stripped.endswith(".md"):
             url = obsidian_url(stripped)
 
@@ -102,8 +143,46 @@ def render_assistant_reply(reply):
 
         st.markdown(line)
 
+    if proposal:
+        proposal_id = hashlib.sha1(
+            reply.encode("utf-8")
+        ).hexdigest()[:12]
 
+        status_key = f"memory_status_{proposal_id}"
+        status = st.session_state.get(status_key)
 
+        st.divider()
+        st.markdown("**Possible memory**")
+        st.markdown(proposal)
+
+        if status == "saved":
+            st.success("✓ Saved to AI memory")
+
+        elif status == "rejected":
+            st.caption("Memory dismissed.")
+
+        else:
+            accept_col, reject_col = st.columns(2)
+
+            if accept_col.button(
+                "Accept memory",
+                key=f"accept_memory_{proposal_id}",
+                use_container_width=True,
+            ):
+                try:
+                    save_memory(proposal)
+                    st.session_state[status_key] = "saved"
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Memory save failed: {exc}")
+
+            if reject_col.button(
+                "Reject",
+                key=f"reject_memory_{proposal_id}",
+                use_container_width=True,
+            ):
+                st.session_state[status_key] = "rejected"
+                st.rerun()
 
 
 def ask_vault(question):
@@ -239,6 +318,17 @@ if prompt:
 
     with st.spinner("Reading your vault..."):
         reply = route(prompt)
+
+        proposal = explicit_memory_proposal(prompt)
+
+        if proposal:
+            clean_reply, _ = split_memory_proposal(reply)
+            reply = (
+                clean_reply
+                + "\n\n[[MEMORY_PROPOSAL]]\n"
+                + proposal
+                + "\n[[/MEMORY_PROPOSAL]]"
+            ).strip()
 
     with st.chat_message("assistant"):
         render_assistant_reply(reply)
