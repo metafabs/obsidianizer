@@ -1,37 +1,24 @@
-import sqlite3
+from array import array
 import json
 import math
-import sys
 import re
+import sqlite3
+import sys
 import urllib.request
-from array import array
+
+from config import EMBED_MODEL, source_type
+
 
 SEMANTIC_DB = "data/semantic.db"
 VAULT_DB = "data/vault.db"
-from config import EMBED_MODEL, source_type
-
 MODEL = EMBED_MODEL
-
-args = sys.argv[1:]
-
-if not args:
-    raise SystemExit(
-        'Usage: python3 semantic_search.py "your query" [--all]'
-    )
-
-include_all = "--all" in args
-args = [a for a in args if a != "--all"]
-
-query = " ".join(args).strip()
-terms = re.findall(r"[A-Za-z0-9_-]+", query.lower())
 
 
 def embed(text):
     payload = json.dumps({
         "model": MODEL,
-        "input": text
+        "input": text,
     }).encode("utf-8")
-
     request = urllib.request.Request(
         "http://localhost:11434/api/embed",
         data=payload,
@@ -39,9 +26,7 @@ def embed(text):
     )
 
     with urllib.request.urlopen(request, timeout=300) as response:
-        data = json.load(response)
-
-    return data["embeddings"][0]
+        return json.load(response)["embeddings"][0]
 
 
 def decode_vector(blob):
@@ -67,134 +52,163 @@ def snippet(text, limit=280):
 
 
 def is_background(path):
-    p = path.lower()
-
+    normalized = path.lower()
     return (
-        "archive/monday archive/monday/" in p
-        or p.startswith("copilot/")
+        "archive/monday archive/monday/" in normalized
+        or normalized.startswith("copilot/")
     )
 
 
+def load_metadata(vault_db=VAULT_DB):
+    vault = sqlite3.connect(vault_db)
+
+    try:
+        return {
+            path: {
+                "title": title,
+                "tags": tags,
+                "links": links,
+            }
+            for path, title, tags, links in vault.execute(
+                """
+                SELECT
+                    n.path,
+                    n.title,
+                    COALESCE(GROUP_CONCAT(DISTINCT t.tag), ''),
+                    COALESCE(GROUP_CONCAT(DISTINCT l.target), '')
+                FROM notes n
+                LEFT JOIN note_tags t ON t.note_id = n.id
+                LEFT JOIN links l ON l.note_id = n.id
+                GROUP BY n.id
+                """
+            )
+        }
+    finally:
+        vault.close()
 
 
-# Load tags + links from structural database
-vault = sqlite3.connect(VAULT_DB)
+def search_semantic(
+    query,
+    *,
+    allowed_paths=None,
+    limit=12,
+    include_all=False,
+    vault_db=VAULT_DB,
+    semantic_db=SEMANTIC_DB,
+    embed_fn=embed,
+):
+    if allowed_paths is not None:
+        allowed_paths = set(allowed_paths)
+        if not allowed_paths:
+            return []
 
-metadata = {}
+    terms = re.findall(r"[A-Za-z0-9_-]+", query.lower())
+    metadata = load_metadata(vault_db)
+    query_vector = embed_fn(query)
+    semantic = sqlite3.connect(semantic_db)
 
-for path, title, tags, links in vault.execute("""
-    SELECT
-        n.path,
-        n.title,
-        COALESCE(GROUP_CONCAT(DISTINCT t.tag), ''),
-        COALESCE(GROUP_CONCAT(DISTINCT l.target), '')
-    FROM notes n
-    LEFT JOIN note_tags t ON t.note_id = n.id
-    LEFT JOIN links l ON l.note_id = n.id
-    GROUP BY n.id
-"""):
-    metadata[path] = {
-        "title": title.lower(),
-        "tags": tags.lower(),
-        "links": links.lower(),
-    }
+    try:
+        rows = semantic.execute(
+            """
+            SELECT path, title, chunk_index, content, embedding
+            FROM chunks
+            """
+        ).fetchall()
+    finally:
+        semantic.close()
 
-vault.close()
+    results = []
 
+    for path, title, chunk_index, content, blob in rows:
+        if allowed_paths is not None and path not in allowed_paths:
+            continue
+        if not include_all and is_background(path):
+            continue
 
-query_vector = embed(query)
+        semantic_score = cosine(query_vector, decode_vector(blob))
+        meta = metadata.get(path, {})
+        title_l = meta.get("title", title).lower()
+        tags_l = meta.get("tags", "").lower()
+        links_l = meta.get("links", "").lower()
+        content_l = content.lower()
+        lexical_bonus = 0
 
-db = sqlite3.connect(SEMANTIC_DB)
+        for term in terms:
+            if term in title_l:
+                lexical_bonus += 0.08
+            if term in tags_l:
+                lexical_bonus += 0.06
+            if term in links_l:
+                lexical_bonus += 0.04
+            if term in content_l:
+                lexical_bonus += 0.015
 
-rows = db.execute("""
-    SELECT path, title, chunk_index, content, embedding
-    FROM chunks
-""").fetchall()
+        results.append({
+            "score": semantic_score + lexical_bonus,
+            "semantic": semantic_score,
+            "path": path,
+            "title": title,
+            "chunk": chunk_index,
+            "content": content,
+        })
 
-results = []
+    results.sort(key=lambda item: item["score"], reverse=True)
+    strongest = []
+    seen = set()
 
-for path, title, chunk_index, content, blob in rows:
+    for result in results:
+        if result["path"] in seen:
+            continue
+        seen.add(result["path"])
+        strongest.append(result)
+        if limit is not None and len(strongest) >= limit:
+            break
 
-    if not include_all and is_background(path):
-        continue
-
-    semantic_score = cosine(
-        query_vector,
-        decode_vector(blob)
-    )
-
-    meta = metadata.get(path, {})
-    title_l = meta.get("title", title.lower())
-    tags_l = meta.get("tags", "")
-    links_l = meta.get("links", "")
-    content_l = content.lower()
-
-    lexical_bonus = 0
-
-    for term in terms:
-        if term in title_l:
-            lexical_bonus += 0.08
-
-        if term in tags_l:
-            lexical_bonus += 0.06
-
-        if term in links_l:
-            lexical_bonus += 0.04
-
-        if term in content_l:
-            lexical_bonus += 0.015
-
-    final_score = semantic_score + lexical_bonus
-
-    results.append({
-        "score": final_score,
-        "semantic": semantic_score,
-        "path": path,
-        "title": title,
-        "chunk": chunk_index,
-        "content": content,
-    })
-
-
-results.sort(
-    key=lambda x: x["score"],
-    reverse=True
-)
+    return strongest
 
 
-# Strongest chunk per note
-seen = set()
-notes = []
+def render_results(query, results, include_all=False):
+    lines = [
+        "",
+        f'Hybrid search: "{query}"',
+        (
+            "Scope: entire corpus"
+            if include_all
+            else "Scope: default knowledge corpus"
+        ),
+        "",
+    ]
 
-for result in results:
-    if result["path"] in seen:
-        continue
+    for index, result in enumerate(results, 1):
+        kind = source_type(result["path"])
+        lines.extend([
+            (
+                f"{index:2}. {result['score']:.4f} "
+                f"(semantic {result['semantic']:.4f}) "
+                f"[{kind}] {result['title']}"
+            ),
+            f"    {result['path']}",
+            f"    {snippet(result['content'])}",
+            "",
+        ])
 
-    seen.add(result["path"])
-    notes.append(result)
-
-    if len(notes) >= 12:
-        break
+    return "\n".join(lines)
 
 
-print(f'\nHybrid search: "{query}"')
-print(
-    "Scope:",
-    "entire corpus" if include_all
-    else "default knowledge corpus"
-)
-print()
+def main():
+    args = sys.argv[1:]
 
-for i, result in enumerate(notes, 1):
-    kind = source_type(result["path"])
+    if not args:
+        raise SystemExit(
+            'Usage: python3 semantic_search.py "your query" [--all]'
+        )
 
-    print(
-        f"{i:2}. {result['score']:.4f} "
-        f"(semantic {result['semantic']:.4f}) "
-        f"[{kind}] {result['title']}"
-    )
-    print(f"    {result['path']}")
-    print(f"    {snippet(result['content'])}")
-    print()
+    include_all = "--all" in args
+    args = [arg for arg in args if arg != "--all"]
+    query = " ".join(args).strip()
+    results = search_semantic(query, include_all=include_all)
+    print(render_results(query, results, include_all=include_all))
 
-db.close()
+
+if __name__ == "__main__":
+    main()

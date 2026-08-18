@@ -1,176 +1,195 @@
+from collections import Counter, defaultdict
+import re
 import sqlite3
 import sys
-import re
-from collections import Counter
 
 from config import source_type
 
+
 DB = "data/vault.db"
-
-args = sys.argv[1:]
-
-if not args:
-    raise SystemExit(
-        'Usage: python3 topic_stats.py "topic" [--all]'
-    )
-
-include_all = "--all" in args
-args = [a for a in args if a != "--all"]
-
-query = " ".join(args).strip().lower()
 
 
 def compact(text):
     return re.sub(r"[^a-z0-9]", "", text.lower())
 
 
-query_compact = compact(query)
-
-db = sqlite3.connect(DB)
-
-
-
 def excluded_by_default(path):
-    p = path.lower()
-
+    normalized = path.lower()
     return (
-        "archive/monday archive/monday/" in p
-        or "/meetings/" in p
-        or p.startswith("copilot/")
+        "archive/monday archive/monday/" in normalized
+        or "/meetings/" in normalized
+        or normalized.startswith("copilot/")
     )
 
 
-notes = db.execute("""
-    SELECT id, path, title, content
-    FROM notes
-""").fetchall()
+def topic_matches(query, *, db_path=DB, include_all=False):
+    query = query.strip().lower()
+    query_compact = compact(query)
+    db = sqlite3.connect(db_path)
 
-matched = []
+    try:
+        rows = db.execute(
+            """
+            SELECT id, path, title, content
+            FROM notes
+            """
+        ).fetchall()
+        tags_by_note = defaultdict(list)
+        links_by_note = defaultdict(list)
+        for note_id, tag in db.execute(
+            "SELECT note_id, tag FROM note_tags"
+        ):
+            tags_by_note[note_id].append(tag)
+        for note_id, target in db.execute(
+            "SELECT note_id, target FROM links"
+        ):
+            links_by_note[note_id].append(target)
+    finally:
+        db.close()
 
-for note_id, path, title, content in notes:
+    matched = []
 
-    if not include_all and excluded_by_default(path):
-        continue
+    for note_id, path, title, content in rows:
+        if not include_all and excluded_by_default(path):
+            continue
 
-    tags = [
-        row[0]
-        for row in db.execute(
-            "SELECT tag FROM note_tags WHERE note_id = ?",
-            (note_id,)
+        tags = tags_by_note[note_id]
+        links = links_by_note[note_id]
+        title_match = query in title.lower()
+        content_match = query in content.lower()
+        tag_match = any(compact(tag) == query_compact for tag in tags)
+        link_match = any(
+            compact(link.split("/")[-1]) == query_compact
+            for link in links
         )
-    ]
 
-    links = [
-        row[0]
-        for row in db.execute(
-            "SELECT target FROM links WHERE note_id = ?",
-            (note_id,)
-        )
-    ]
+        if not (title_match or content_match or tag_match or link_match):
+            continue
 
-    title_l = title.lower()
-    content_l = content.lower()
+        reasons = []
+        if title_match:
+            reasons.append("title")
+        if tag_match:
+            reasons.append("tag")
+        if link_match:
+            reasons.append("link")
+        if content_match:
+            reasons.append("content")
 
-    title_match = query in title_l
-    content_match = query in content_l
+        matched.append({
+            "id": note_id,
+            "path": path,
+            "title": title,
+            "content": content,
+            "tags": tags,
+            "links": links,
+            "type": source_type(path),
+            "reasons": reasons,
+        })
 
-    tag_match = any(
-        compact(tag) == query_compact
-        for tag in tags
+    return matched
+
+
+def calculate_topic_stats(query, *, db_path=DB, include_all=False):
+    matched = topic_matches(
+        query,
+        db_path=db_path,
+        include_all=include_all,
     )
+    types = Counter()
+    tags = Counter()
+    links = Counter()
+    reasons = Counter()
+    query_compact = compact(query)
 
-    link_match = any(
-        compact(link.split("/")[-1]) == query_compact
-        for link in links
-    )
+    for note in matched:
+        types[note["type"]] += 1
+        reasons.update(note["reasons"])
 
-    if not (
-        title_match
-        or content_match
-        or tag_match
-        or link_match
-    ):
-        continue
+        for tag in note["tags"]:
+            if compact(tag) != query_compact:
+                tags[tag] += 1
 
-    reasons = []
+        for link in note["links"]:
+            if compact(link.split("/")[-1]) != query_compact:
+                links[link] += 1
 
-    if title_match:
-        reasons.append("title")
-    if tag_match:
-        reasons.append("tag")
-    if link_match:
-        reasons.append("link")
-    if content_match:
-        reasons.append("content")
-
-    matched.append({
-        "id": note_id,
-        "path": path,
-        "title": title,
+    return {
+        "query": query,
+        "matched": matched,
+        "types": types,
         "tags": tags,
         "links": links,
-        "type": source_type(path),
         "reasons": reasons,
-    })
+        "include_all": include_all,
+    }
 
 
-types = Counter()
-tags = Counter()
-links = Counter()
-reasons = Counter()
+def render_topic_stats(stats):
+    query = stats["query"]
+    matched = stats["matched"]
+    lines = [
+        "",
+        f'TOPIC STATS — "{query.lower()}"',
+        "=" * 40,
+        (
+            "Scope: entire indexed vault"
+            if stats["include_all"]
+            else "Scope: default knowledge corpus"
+        ),
+        "",
+        f"Direct topic notes: {len(matched)}",
+        "",
+        "MATCH SIGNALS",
+    ]
 
-for note in matched:
-    types[note["type"]] += 1
-
-    for reason in note["reasons"]:
-        reasons[reason] += 1
-
-    for tag in note["tags"]:
-        if compact(tag) != query_compact:
-            tags[tag] += 1
-
-    for link in note["links"]:
-        if compact(link.split("/")[-1]) != query_compact:
-            links[link] += 1
-
-
-print()
-print(f'TOPIC STATS — "{query}"')
-print("=" * 40)
-
-print(
-    "Scope:",
-    "entire indexed vault" if include_all
-    else "default knowledge corpus"
-)
-
-print(f"\nDirect topic notes: {len(matched)}")
-
-print("\nMATCH SIGNALS")
-for reason, count in reasons.most_common():
-    print(f"{count:4}  {reason.upper()}")
-
-print("\nBY SOURCE TYPE")
-for kind, count in types.most_common():
-    print(f"{count:4}  {kind}")
-
-print("\nTOP RELATED TAGS")
-for tag, count in tags.most_common(12):
-    print(f"{count:4}  #{tag}")
-
-print("\nTOP RELATED LINKS")
-for link, count in links.most_common(12):
-    print(f"{count:4}  [[{link}]]")
-
-print("\nMATCHING NOTES")
-for note in matched[:15]:
-    reason = "/".join(note["reasons"]).upper()
-    print(
-        f"- [{note['type']}] "
-        f"{note['title']} — {reason}"
+    lines.extend(
+        f"{count:4}  {reason.upper()}"
+        for reason, count in stats["reasons"].most_common()
     )
+    lines.extend(["", "BY SOURCE TYPE"])
+    lines.extend(
+        f"{count:4}  {kind}"
+        for kind, count in stats["types"].most_common()
+    )
+    lines.extend(["", "TOP RELATED TAGS"])
+    lines.extend(
+        f"{count:4}  #{tag}"
+        for tag, count in stats["tags"].most_common(12)
+    )
+    lines.extend(["", "TOP RELATED LINKS"])
+    lines.extend(
+        f"{count:4}  [[{link}]]"
+        for link, count in stats["links"].most_common(12)
+    )
+    lines.extend(["", "MATCHING NOTES"])
 
-if len(matched) > 15:
-    print(f"...and {len(matched) - 15} more.")
+    for note in matched[:15]:
+        reason = "/".join(note["reasons"]).upper()
+        lines.append(
+            f"- [{note['type']}] {note['title']} — {reason}"
+        )
 
-db.close()
+    if len(matched) > 15:
+        lines.append(f"...and {len(matched) - 15} more.")
+
+    return "\n".join(lines)
+
+
+def main():
+    args = sys.argv[1:]
+
+    if not args:
+        raise SystemExit(
+            'Usage: python3 topic_stats.py "topic" [--all]'
+        )
+
+    include_all = "--all" in args
+    args = [arg for arg in args if arg != "--all"]
+    query = " ".join(args).strip()
+    stats = calculate_topic_stats(query, include_all=include_all)
+    print(render_topic_stats(stats))
+
+
+if __name__ == "__main__":
+    main()
