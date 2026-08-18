@@ -48,8 +48,9 @@ def extract_frontmatter_tags(text):
 
     return tags
 
-def parse_note(path):
+def parse_note(path, vault=VAULT):
     text = path.read_text(encoding="utf-8")
+    stat = path.stat()
 
     frontmatter_tags = extract_frontmatter_tags(text)
 
@@ -75,7 +76,7 @@ def parse_note(path):
     plain_text = re.sub(r"\[\[|\]\]|[#*_>`~-]", " ", text)
     word_count = len(re.findall(r"\b\w+\b", plain_text))
 
-    relative = path.relative_to(VAULT)
+    relative = path.relative_to(vault)
 
     return {
         "path": str(relative),
@@ -84,8 +85,17 @@ def parse_note(path):
         "content": text,
         "word_count": word_count,
         "modified": datetime.fromtimestamp(
-            path.stat().st_mtime
+            stat.st_mtime
         ).isoformat(timespec="seconds"),
+        "modified_ns": stat.st_mtime_ns,
+        "created": (
+            datetime.fromtimestamp(stat.st_birthtime).isoformat(
+                timespec="seconds"
+            )
+            if hasattr(stat, "st_birthtime")
+            else None
+        ),
+        "size": stat.st_size,
         "tags": tags,
         "links": links,
         "headings": headings,
@@ -105,7 +115,10 @@ def create_database(conn):
             title TEXT,
             content TEXT,
             word_count INTEGER,
-            modified TEXT
+            modified TEXT,
+            modified_ns INTEGER,
+            created TEXT,
+            size INTEGER
         );
 
         CREATE TABLE note_tags (
@@ -150,8 +163,11 @@ def main():
 
             cursor = conn.execute("""
                 INSERT INTO notes
-                (path, folder, title, content, word_count, modified)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (
+                    path, folder, title, content, word_count, modified,
+                    modified_ns, created, size
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 note["path"],
                 note["folder"],
@@ -159,6 +175,9 @@ def main():
                 note["content"],
                 note["word_count"],
                 note["modified"],
+                note["modified_ns"],
+                note["created"],
+                note["size"],
             ))
 
             note_id = cursor.lastrowid

@@ -28,10 +28,10 @@ if st.button("↻ Refresh vault"):
     if result.returncode == 0:
         output = result.stdout
 
-        if "Vault index is already current" in output:
+        if "Vault is already current." in output:
             st.success("Vault is already current.")
         else:
-            new = changed = deleted = chunks = "0"
+            new = updated = deleted = chunks = "0"
 
             for line in output.splitlines():
                 stripped = line.strip()
@@ -39,19 +39,19 @@ if st.button("↻ Refresh vault"):
                 if stripped.startswith("New:"):
                     new = stripped.split(":", 1)[1].strip()
 
-                elif stripped.startswith("Changed:"):
-                    changed = stripped.split(":", 1)[1].strip()
+                elif stripped.startswith("Updated:"):
+                    updated = stripped.split(":", 1)[1].strip()
 
                 elif stripped.startswith("Deleted:"):
                     deleted = stripped.split(":", 1)[1].strip()
 
-                elif stripped.startswith("Chunks requiring embeddings:"):
+                elif stripped.startswith("Chunks embedded:"):
                     chunks = stripped.split(":", 1)[1].strip()
 
             st.success(
                 f"Vault refreshed · "
                 f"{new} new · "
-                f"{changed} changed · "
+                f"{updated} updated · "
                 f"{deleted} deleted · "
                 f"{chunks} chunks embedded"
             )
